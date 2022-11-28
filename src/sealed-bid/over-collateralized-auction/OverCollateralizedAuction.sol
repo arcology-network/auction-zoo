@@ -2,12 +2,41 @@
 pragma solidity ^0.8.13;
 
 import "solmate/tokens/ERC721.sol";
-import "solmate/utils/ReentrancyGuard.sol";
 import "solmate/utils/SafeTransferLib.sol";
 import "./IOverCollateralizedAuctionErrors.sol";
+import "./ConcurrentLib.sol";
 
 /// @title An on-chain, over-collateralization, sealed-bid, second-price auction
-contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, ReentrancyGuard {
+contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
+    mapping (address => uint256) private locks;
+    modifier nonReentrant(address origin) {
+        require(locks[origin] == 0, "REENTRANCY");
+        locks[origin] = 1;
+        _;
+        locks[origin] = 0;
+    }
+
+    using Concurrency for Concurrency.Array;
+    using Concurrency for Concurrency.Deferred;
+    Concurrency.Array unrevealedBidsUpdates;
+    Concurrency.Deferred deferredUpdates;
+    constructor() {
+        unrevealedBidsUpdates.Init("unrevealedBidsUpdates", Concurrency.DataType.BYTES);
+        deferredUpdates.Init("deferredUpdates", "updateUnrevealedBidsNum(string)");
+    }
+    function updateUnrevealedBidsNum(string memory) public {
+        uint256 len = unrevealedBidsUpdates.Length();
+        for (uint256 i = 0; i < len; i++) {
+            bytes memory data = unrevealedBidsUpdates.PopFrontBytes();
+            (address tokenContract, uint256 tokenId, bool increase) = abi.decode(data, (address, uint256, bool));
+            if (increase) {
+                auctions[tokenContract][tokenId].numUnrevealedBids++;
+            } else {
+                auctions[tokenContract][tokenId].numUnrevealedBids--;
+            }
+        }
+    }
+
     using SafeTransferLib for address;
 
     /// @dev Representation of an auction in storage. Occupies three slots.
@@ -134,7 +163,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
         uint96 reservePrice
     ) 
         external 
-        nonReentrant
+        nonReentrant(tx.origin)
     {
         Auction storage auction = auctions[tokenContract][tokenId];
 
@@ -194,7 +223,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
     )
         external
         payable
-        nonReentrant
+        nonReentrant(tx.origin)
     {
         if (commitment == bytes20(0)) {
             revert ZeroCommitmentError();
@@ -213,7 +242,9 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
         Bid storage bid = bids[tokenContract][tokenId][auctionIndex][msg.sender];
         // If this is the bidder's first commitment, increment `numUnrevealedBids`.
         if (bid.commitment == bytes20(0)) {
-            auction.numUnrevealedBids++;
+            // auction.numUnrevealedBids++;
+            unrevealedBidsUpdates.PushBack(abi.encode(tokenContract, tokenId, true));
+            deferredUpdates.Call();
         }
         bid.commitment = commitment;
         if (msg.value != 0) {
@@ -234,7 +265,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
         bytes32 nonce
     )
         external
-        nonReentrant
+        nonReentrant(tx.origin)
     {
         Auction storage auction = auctions[tokenContract][tokenId];
 
@@ -261,7 +292,9 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
         } else {
             // Mark commitment as open
             bid.commitment = bytes20(0);
-            auction.numUnrevealedBids--;
+            // auction.numUnrevealedBids--;
+            unrevealedBidsUpdates.PushBack(abi.encode(tokenContract, tokenId, false));
+            deferredUpdates.Call();
         }
 
         uint96 collateral = bid.collateral;
@@ -305,7 +338,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
     /// @param tokenId The ERC721 token ID of the asset auctioned.
     function endAuction(address tokenContract, uint256 tokenId)
         external
-        nonReentrant
+        nonReentrant(tx.origin)
     {
         Auction storage auction = auctions[tokenContract][tokenId];
         if (auction.index == 0) {
@@ -353,7 +386,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors, Reentran
         uint64 auctionIndex
     )
         external
-        nonReentrant        
+        nonReentrant(tx.origin)        
     {
         Auction storage auction = auctions[tokenContract][tokenId];
         uint64 currentAuctionIndex = auction.index;
