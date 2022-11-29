@@ -11,7 +11,7 @@ The goal is to identify and eliminate all the contention from the original imple
 
 ## Code Parallelization
 
-- Over collateralized auction.
+- Collateralized auction.
     - [ ] Use a fine-grained lock instead of the global reentrancy lock. After that, **createAuction**, **endAuction** and **withdrawCollateral** can run in parallel.
     - [ ] Update **numUnrevealedBids** in a deferred function. After that, **commitBid** can run in parallel as well.
     - [ ] Update **highestBid**, **highestBidder** and **secondHighestBid** in a deferred function. After that, **revealBid** can be parallelized.
