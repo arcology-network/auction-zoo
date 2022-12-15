@@ -5,9 +5,12 @@ import "../src/sealed-bid/over-collateralized-auction/OverCollateralizedAuction.
 import "../src/sealed-bid/over-collateralized-auction/IOverCollateralizedAuctionErrors.sol";
 import "./utils/TestActors.sol";
 import "./utils/TestERC721.sol";
+import "../src/sealed-bid/over-collateralized-auction/ConcurrentLib.sol";
 
 
 contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, TestActors {
+    using Concurrency for Concurrency.CommutativeUint256;
+
     OverCollateralizedAuction auction;
     TestERC721 erc721;
 
@@ -30,7 +33,7 @@ contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, Test
                 startTime: uint32(block.timestamp + 1 hours),
                 endOfBiddingPeriod: uint32(block.timestamp + 2 hours),
                 endOfRevealPeriod: uint32(block.timestamp + 3 hours),
-                numUnrevealedBids: 0,
+                numUnrevealedBids: Concurrency.CommutativeUint256({value: 0}),
                 highestBid: ONE_ETH,
                 secondHighestBid: ONE_ETH,
                 highestBidder: address(0),
@@ -162,7 +165,7 @@ contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, Test
             nonce
         );
 
-        expectedState.numUnrevealedBids = 0; // the only bid was revealed
+        expectedState.numUnrevealedBids.value = 0; // the only bid was revealed
         expectedState.highestBid = bidValue;
         expectedState.highestBidder = bob;
         assertAuctionsEqual(
@@ -328,7 +331,7 @@ contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, Test
             ONE_ETH + 1,
             bytes32(uint256(123))
         );
-        expectedState.numUnrevealedBids = 1;
+        expectedState.numUnrevealedBids.value = 1;
         expectedState.highestBid = ONE_ETH + 1;
         expectedState.highestBidder = bob;
         assertAuctionsEqual(
@@ -342,7 +345,7 @@ contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, Test
             ONE_ETH + 2,
             bytes32(uint256(234))
         );
-        expectedState.numUnrevealedBids = 0;
+        expectedState.numUnrevealedBids.value = 0;
         expectedState.highestBid = ONE_ETH + 2;
         expectedState.highestBidder = charlie;
         expectedState.secondHighestBid = ONE_ETH + 1;
@@ -702,7 +705,7 @@ contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, Test
         assertEq(storedCommitment, commitment, "commitment");
         assertEq(storedCollateral, collateral, "collateral");
         assertEq(
-            auction.getAuction(address(erc721), 1).numUnrevealedBids,
+            auction.getAuction(address(erc721), 1).numUnrevealedBids.value,
             numUnrevealedBids,
             "numUnrevealedBids"
         );
@@ -716,7 +719,7 @@ contract OverCollateralizedAuctionTest is IOverCollateralizedAuctionErrors, Test
         assertEq(actualAuction.startTime, expectedAuction.startTime, "startTime");
         assertEq(actualAuction.endOfBiddingPeriod, expectedAuction.endOfBiddingPeriod, "endOfBiddingPeriod");
         assertEq(actualAuction.endOfRevealPeriod, expectedAuction.endOfRevealPeriod, "endOfRevealPeriod");
-        assertEq(actualAuction.numUnrevealedBids, expectedAuction.numUnrevealedBids, "numUnrevealedBids");
+        assertEq(actualAuction.numUnrevealedBids.value, expectedAuction.numUnrevealedBids.value, "numUnrevealedBids");
         assertEq(actualAuction.highestBid, expectedAuction.highestBid, "highestBid");
         assertEq(actualAuction.secondHighestBid, expectedAuction.secondHighestBid, "secondHighestBid");
         assertEq(actualAuction.highestBidder, expectedAuction.highestBidder, "highestBidder");

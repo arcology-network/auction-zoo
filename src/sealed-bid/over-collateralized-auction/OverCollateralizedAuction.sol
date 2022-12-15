@@ -16,26 +16,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
         locks[origin] = 0;
     }
 
-    using Concurrency for Concurrency.Array;
-    using Concurrency for Concurrency.Deferred;
-    Concurrency.Array unrevealedBidsUpdates;
-    Concurrency.Deferred deferredUpdates;
-    constructor() {
-        unrevealedBidsUpdates.Init("unrevealedBidsUpdates", Concurrency.DataType.BYTES);
-        deferredUpdates.Init("deferredUpdates", "updateUnrevealedBidsNum(string)");
-    }
-    function updateUnrevealedBidsNum(string memory) public {
-        uint256 len = unrevealedBidsUpdates.Length();
-        for (uint256 i = 0; i < len; i++) {
-            bytes memory data = unrevealedBidsUpdates.PopFrontBytes();
-            (address tokenContract, uint256 tokenId, bool increase) = abi.decode(data, (address, uint256, bool));
-            if (increase) {
-                auctions[tokenContract][tokenId].numUnrevealedBids++;
-            } else {
-                auctions[tokenContract][tokenId].numUnrevealedBids--;
-            }
-        }
-    }
+    using Concurrency for Concurrency.CommutativeUint256;
 
     using SafeTransferLib for address;
 
@@ -62,12 +43,14 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
         uint32 endOfBiddingPeriod;
         uint32 endOfRevealPeriod;
         // =====================
-        uint64 numUnrevealedBids;
+        // uint64 numUnrevealedBids;
+        uint64 index;
         uint96 highestBid;
         uint96 secondHighestBid;
         // =====================
         address highestBidder;
-        uint64 index;
+        // uint64 index;
+        Concurrency.CommutativeUint256 numUnrevealedBids;
     }
 
     /// @dev Representation of a bid in storage. Occupies one slot.
@@ -184,7 +167,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
         auction.endOfBiddingPeriod = startTime + bidPeriod;
         auction.endOfRevealPeriod = startTime + bidPeriod + revealPeriod;
         // Reset
-        auction.numUnrevealedBids = 0;
+        auction.numUnrevealedBids.value = 0;
         // Both highest and second-highest bid are set to the reserve price.
         // Any winning bid must be at least this price, and the winner will 
         // pay at least this price.
@@ -243,8 +226,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
         // If this is the bidder's first commitment, increment `numUnrevealedBids`.
         if (bid.commitment == bytes20(0)) {
             // auction.numUnrevealedBids++;
-            unrevealedBidsUpdates.PushBack(abi.encode(tokenContract, tokenId, true));
-            deferredUpdates.Call();
+            auction.numUnrevealedBids.Increase(1);
         }
         bid.commitment = commitment;
         if (msg.value != 0) {
@@ -293,8 +275,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
             // Mark commitment as open
             bid.commitment = bytes20(0);
             // auction.numUnrevealedBids--;
-            unrevealedBidsUpdates.PushBack(abi.encode(tokenContract, tokenId, false));
-            deferredUpdates.Call();
+            auction.numUnrevealedBids.Decrease(1);
         }
 
         uint96 collateral = bid.collateral;
@@ -348,7 +329,7 @@ contract OverCollateralizedAuction is IOverCollateralizedAuctionErrors {
         if (block.timestamp <= auction.endOfBiddingPeriod) {
             revert BidPeriodOngoingError();
         } else if (block.timestamp <= auction.endOfRevealPeriod) {
-            if (auction.numUnrevealedBids != 0) {
+            if (auction.numUnrevealedBids.value != 0) {
                 // cannot end auction early unless all bids have been revealed
                 revert RevealPeriodOngoingError();
             }

@@ -7,6 +7,7 @@ abstract contract UUID {
 abstract contract System {
     function createDefer(string calldata id, string calldata signature) virtual external;
     function callDefer(string calldata id) virtual external;
+    function getKey(uint256 data) virtual external returns(bytes32);
 }
 
 abstract contract DynamicArray {
@@ -39,12 +40,20 @@ abstract contract DynamicArray {
     function getBytes(string calldata id, uint256 index) virtual external returns(bytes memory);
 }
 
+abstract contract Commutative {
+    function isInited(bytes32 key) virtual external returns(bool);
+    function init(bytes32 key, uint256 lowerLimit, uint256 upperLimit) virtual external;
+    function increase(bytes32 key, uint256 delta) virtual external;
+    function decrease(bytes32 key, uint256 delta) virtual external;
+}
+
 library Concurrency {
     enum DataType { INVALID, ADDRESS, UINT256, BYTES }
 
     DynamicArray constant private darray = DynamicArray(address(0x84));
     System constant private sys = System(address(0xa1));
     UUID constant private uuid = UUID(address(0xa0));
+    Commutative constant private commutative = Commutative(address(0xa2));
 
     struct Array {
         string id;
@@ -162,5 +171,29 @@ library Concurrency {
 
     function GenUUID(Util storage, string memory seed) public pure returns(uint256) {
         return uuid.gen(seed);
+    }
+
+    struct CommutativeUint256 {
+        uint256 value;
+    }
+
+    function IsInited(CommutativeUint256 storage self) public returns(bool) {
+        bytes32 key = sys.getKey(self.value);
+        return commutative.isInited(key);
+    }
+
+    function Init(CommutativeUint256 storage self, uint256 lowerLimit, uint256 upperLimit) public {
+        bytes32 key = sys.getKey(self.value);
+        commutative.init(key, lowerLimit, upperLimit);
+    }
+
+    function Increase(CommutativeUint256 storage self, uint256 delta) public {
+        bytes32 key = sys.getKey(self.value);
+        commutative.increase(key, delta);
+    }
+
+    function Decrease(CommutativeUint256 storage self, uint256 delta) public {
+        bytes32 key = sys.getKey(self.value);
+        commutative.decrease(key, delta);
     }
 }
